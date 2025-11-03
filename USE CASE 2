@@ -1,0 +1,278 @@
+"""
+hci_demo.py
+A small Human-Computer Interaction demo app using Tkinter.
+
+Features:
+- Clear, labeled form (demonstrates affordance & signposting)
+- Keyboard shortcuts (Alt+N to focus name, Ctrl+S to submit)
+- Adjustable font size (accessibility)
+- High-contrast toggle (accessibility)
+- Simple tooltips for guidance
+- Basic form validation with inline messages (feedback)
+- Usability event logging to 'usage_log.csv' with timestamps
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox
+import csv
+import datetime
+
+LOGFILE = "usage_log.csv"
+
+# --- simple logger for usability events ---
+def log_event(event_type, details=""):
+    ts = datetime.datetime.now().isoformat(sep=' ', timespec='seconds')
+    with open(LOGFILE, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([ts, event_type, details])
+
+# ensure logfile has header
+try:
+    with open(LOGFILE, "x", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["timestamp", "event", "details"])
+except FileExistsError:
+    pass
+
+# --- Tooltip helper ---
+class Tooltip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tipwindow = None
+        widget.bind("<Enter>", self.show)
+        widget.bind("<Leave>", self.hide)
+        widget.bind("<FocusIn>", self.show)
+        widget.bind("<FocusOut>", self.hide)
+
+    def show(self, _event=None):
+        if self.tipwindow or not self.text:
+            return
+        x, y, cx, cy = self.widget.bbox("insert") if "insert" in self.widget.keys() else (0,0,0,0)
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 2
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(tw, text=self.text, justify="left",
+                         background="#ffffe0", relief="solid", borderwidth=1,
+                         font=("Arial", 9))
+        label.pack(ipadx=4, ipady=2)
+
+    def hide(self, _event=None):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
+# --- Main App ---
+class HCIDemoApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("HCI Demo — Accessible Form")
+        self.geometry("640x420")
+        self.minsize(560, 360)
+
+        # Shared styles / state
+        self.base_font_size = tk.IntVar(value=12)
+        self.high_contrast = tk.BooleanVar(value=False)
+
+        # Setup keyboard shortcuts
+        self.bind_all("<Control-s>", lambda e: self.on_submit())
+        self.bind_all("<Control-S>", lambda e: self.on_submit())
+        # Alt+N to focus name entry (works on Windows/Linux; Mac users: try Option)
+        self.bind_all("<Alt-n>", lambda e: self.name_entry.focus_set())
+
+        # Top toolbar area
+        self.create_toolbar()
+
+        # Main form area
+        self.create_form()
+
+        # Footer / status
+        self.status_var = tk.StringVar(value="Ready")
+        status = ttk.Label(self, textvariable=self.status_var, anchor="w")
+        status.pack(side="bottom", fill="x", padx=6, pady=4)
+
+        # apply initial theme
+        self.apply_styles()
+
+        log_event("app_started", "User opened HCI demo app")
+
+    def create_toolbar(self):
+        toolbar = ttk.Frame(self)
+        toolbar.pack(side="top", fill="x", padx=6, pady=6)
+
+        ttk.Label(toolbar, text="Font size:").pack(side="left", padx=(0,4))
+        font_spin = ttk.Spinbox(toolbar, from_=10, to=22, textvariable=self.base_font_size, width=4,
+                                command=self.on_font_change)
+        font_spin.pack(side="left")
+        Tooltip(font_spin, "Increase or decrease the base font size for accessibility.")
+
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8)
+
+        hc = ttk.Checkbutton(toolbar, text="High Contrast", variable=self.high_contrast,
+                             command=self.on_high_contrast_toggle)
+        hc.pack(side="left")
+        Tooltip(hc, "Toggle a high-contrast theme for better visibility.")
+
+        ttk.Label(toolbar, text="    ").pack(side="left", expand=True)  # spacer
+
+        help_btn = ttk.Button(toolbar, text="Help", command=self.show_help)
+        help_btn.pack(side="right")
+        Tooltip(help_btn, "Open a short help dialog about using this demo.")
+
+    def create_form(self):
+        # Use a frame with padding to demonstrate spacing & grouping
+        frm = ttk.Frame(self, padding=(16, 10))
+        frm.pack(side="top", fill="both", expand=True)
+
+        # Use grid for good alignment (labels -> controls)
+        frm.columnconfigure(1, weight=1)
+
+        # Name
+        ttk.Label(frm, text="Full name:").grid(row=0, column=0, sticky="w", pady=6)
+        self.name_entry = ttk.Entry(frm)
+        self.name_entry.grid(row=0, column=1, sticky="ew", padx=8)
+        self.name_entry.bind("<FocusOut>", lambda e: log_event("focus_out", "name"))
+        Tooltip(self.name_entry, "Type your full name here. Shortcut: Alt+N")
+
+        # Age (demonstrates numeric field with validation)
+        ttk.Label(frm, text="Age:").grid(row=1, column=0, sticky="w", pady=6)
+        self.age_var = tk.StringVar()
+        self.age_entry = ttk.Entry(frm, textvariable=self.age_var, width=6)
+        self.age_entry.grid(row=1, column=1, sticky="w", padx=8)
+        Tooltip(self.age_entry, "Enter your age (numbers only).")
+
+        # Gender (radio buttons)
+        ttk.Label(frm, text="Gender:").grid(row=2, column=0, sticky="w", pady=6)
+        gender_frame = ttk.Frame(frm)
+        gender_frame.grid(row=2, column=1, sticky="w", padx=8)
+        self.gender_var = tk.StringVar(value="Prefer not to say")
+        for g in ["Male", "Female", "Other", "Prefer not to say"]:
+            rb = ttk.Radiobutton(gender_frame, text=g, value=g, variable=self.gender_var,
+                                 command=lambda: log_event("radio_change", self.gender_var.get()))
+            rb.pack(side="left", padx=6)
+
+        # Comments (multiline with label)
+        ttk.Label(frm, text="Comments:").grid(row=3, column=0, sticky="nw", pady=6)
+        self.comments = tk.Text(frm, height=6, wrap="word")
+        self.comments.grid(row=3, column=1, sticky="nsew", padx=8)
+        frm.rowconfigure(3, weight=1)
+        Tooltip(self.comments, "Optional: tell us about your experience.")
+
+        # Inline error label area
+        self.error_var = tk.StringVar(value="")
+        self.error_label = ttk.Label(frm, textvariable=self.error_var, foreground="red")
+        self.error_label.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8,4))
+
+        # Buttons
+        btn_frame = ttk.Frame(frm)
+        btn_frame.grid(row=5, column=0, columnspan=2, sticky="e", pady=6)
+        submit_btn = ttk.Button(btn_frame, text="Submit (Ctrl+S)", command=self.on_submit)
+        submit_btn.pack(side="right", padx=6)
+        reset_btn = ttk.Button(btn_frame, text="Reset", command=self.on_reset)
+        reset_btn.pack(side="right", padx=6)
+        Tooltip(submit_btn, "Submit the form. Shortcut: Ctrl+S")
+        Tooltip(reset_btn, "Clear all inputs and errors.")
+
+    # --- callbacks & behaviors ---
+    def on_font_change(self):
+        size = self.base_font_size.get()
+        self.apply_styles()
+        self.status_var.set(f"Font size set to {size}px")
+        log_event("font_changed", f"size={size}")
+
+    def on_high_contrast_toggle(self):
+        self.apply_styles()
+        mode = "on" if self.high_contrast.get() else "off"
+        self.status_var.set(f"High contrast: {mode}")
+        log_event("high_contrast_toggled", mode)
+
+    def apply_styles(self):
+        # Apply a minimal set of style changes using ttk.Style
+        size = self.base_font_size.get()
+        style = ttk.Style(self)
+        default_font = ("Segoe UI", size) if "win" in self.tk.call("tk", "windowingsystem") else ("Arial", size)
+        # Configure basic widget fonts and paddings
+        style.configure(".", font=default_font)
+        style.configure("TButton", padding=6)
+        style.configure("TEntry", padding=4)
+        style.configure("TLabel", padding=2)
+
+        if self.high_contrast.get():
+            # High contrast theme: dark background, light text (simple approximation)
+            self.configure(background="#000000")
+            style.configure(".", background="#000000", foreground="#ffffff")
+            style.configure("TButton", background="#222222", foreground="#ffffff")
+            # Text widget background needs to be set directly
+            self.comments.configure(background="#111111", foreground="#ffffff", insertbackground="#ffffff")
+        else:
+            # Default light theme
+            self.configure(background=self.cget("bg"))
+            style.configure(".", background=self.cget("bg"), foreground="#000000")
+            self.comments.configure(background="#ffffff", foreground="#000000", insertbackground="#000000")
+
+    def on_submit(self):
+        # Validate inputs
+        errors = []
+        name = self.name_entry.get().strip()
+        age = self.age_var.get().strip()
+        comments = self.comments.get("1.0", "end").strip()
+        gender = self.gender_var.get()
+
+        if not name:
+            errors.append("Name is required.")
+        if age:
+            if not age.isdigit() or not (0 < int(age) < 130):
+                errors.append("Age must be a number between 1 and 129.")
+        else:
+            errors.append("Age is required.")
+
+        if errors:
+            self.error_var.set(" | ".join(errors))
+            self.status_var.set("Please fix the errors and try again.")
+            log_event("submit_failed", ";".join(errors))
+            # Move focus to first problematic field
+            if "Name" in errors[0]:
+                self.name_entry.focus_set()
+            elif "Age" in errors[-1]:
+                self.age_entry.focus_set()
+            return
+
+        # Simulate submission processing
+        self.error_var.set("")
+        self.status_var.set("Submitting...")
+        log_event("submit_success", f"name={name}, age={age}, gender={gender}, comments_len={len(comments)}")
+
+        # Provide clear feedback to the user
+        messagebox.showinfo("Thanks!", "Your response was submitted successfully.\n\n(Events are being logged for usability analysis.)")
+        self.status_var.set("Submission complete")
+        # Optionally reset form
+        # self.on_reset()
+
+    def on_reset(self):
+        self.name_entry.delete(0, "end")
+        self.age_entry.delete(0, "end")
+        self.comments.delete("1.0", "end")
+        self.gender_var.set("Prefer not to say")
+        self.error_var.set("")
+        self.status_var.set("Form reset")
+        log_event("form_reset")
+
+    def show_help(self):
+        help_text = (
+            "HCI Demo — Help\n\n"
+            "- Use Alt+N to focus the Name field.\n"
+            "- Use Ctrl+S to submit the form quickly.\n"
+            "- Increase font size for accessibility.\n"
+            "- Toggle High Contrast for better visibility.\n"
+            "- Fields have inline guidance (tooltips) and validation.\n\n"
+            "This app logs simple usage events to 'usage_log.csv' for later analysis."
+        )
+        messagebox.showinfo("Help", help_text)
+        log_event("help_opened")
+
+if __name__ == "__main__":
+    app = HCIDemoApp()
+    app.mainloop()
