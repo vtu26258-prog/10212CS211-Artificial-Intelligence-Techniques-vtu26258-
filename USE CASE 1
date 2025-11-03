@@ -1,0 +1,79 @@
+from flask import Flask, request, jsonify
+import os
+import uuid
+from google.cloud import dialogflow_v2 as dialogflow
+
+app = Flask(__name__)
+
+# Make sure you set these environment variables before running:
+# export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+# export DIALOGFLOW_PROJECT_ID="your-dialogflow-project-id"
+
+PROJECT_ID = os.getenv('DIALOGFLOW_PROJECT_ID')
+LANGUAGE_CODE = 'en'
+
+# ---------------------- DIALOGFLOW CLIENT ----------------------
+def detect_intent_text(project_id, session_id, text, language_code=LANGUAGE_CODE):
+    """Sends a text query to Dialogflow and returns the response text."""
+    session_client = dialogflow.SessionsClient()
+    session = session_client.session_path(project_id, session_id)
+
+    text_input = dialogflow.TextInput(text=text, language_code=language_code)
+    query_input = dialogflow.QueryInput(text=text_input)
+
+    response = session_client.detect_intent(request={"session": session, "query_input": query_input})
+    return response.query_result.fulfillment_text
+
+# ---------------------- FLASK WEBHOOK ----------------------
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    """Webhook endpoint for Dialogflow fulfillment."""
+    try:
+        req = request.get_json(force=True)
+        query_result = req.get('queryResult', {})
+        intent = query_result.get('intent', {}).get('displayName', '')
+        params = query_result.get('parameters', {})
+
+        # Intent-based responses
+        if intent == 'Default Welcome Intent':
+            return make_text_response("Hello! I'm your intelligent assistant. How can I help you today?")
+        
+        elif intent == 'GetWeather':
+            city = params.get('geo-city') or params.get('city') or 'your city'
+            weather_text = f"The weather in {city} is sunny and 25°C (mock)."
+            return make_text_response(weather_text)
+
+        elif intent == 'SmallTalk.HowAreYou':
+            return make_text_response("I'm doing great, thanks for asking! How are you?")
+        
+        else:
+            return make_text_response("Sorry, I didn't understand that. Can you rephrase?")
+    
+    except Exception as e:
+        return make_text_response(f"Error: {str(e)}")
+
+def make_text_response(text):
+    """Formats response for Dialogflow."""
+    return jsonify({"fulfillmentText": text})
+
+# ---------------------- LOCAL TEST ENDPOINT ----------------------
+@app.route("/ask", methods=["GET"])
+def ask():
+    """Allows testing Dialogflow interaction directly via browser or curl."""
+    query = request.args.get("q", "Hello")
+    session_id = str(uuid.uuid4())
+
+    if not PROJECT_ID:
+        return jsonify({"error": "DIALOGFLOW_PROJECT_ID not set in environment variables."})
+
+    try:
+        response_text = detect_intent_text(PROJECT_ID, session_id, query)
+        return jsonify({"user_query": query, "bot_response": response_text})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# ---------------------- MAIN ----------------------
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    print(f"Chatbot server running on http://localhost:{port}")
+    app.run(host="0.0.0.0", port=port, debug=True)
